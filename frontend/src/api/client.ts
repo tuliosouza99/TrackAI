@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { useQuery, useInfiniteQuery, UseQueryOptions, UseInfiniteQueryOptions } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import type { UseQueryOptions } from '@tanstack/react-query';
 
 // Types
 export interface Project {
@@ -138,10 +139,7 @@ export function useRuns(
   });
 }
 
-export function useInfiniteRuns(
-  filters: RunFilters,
-  options?: Omit<UseInfiniteQueryOptions<RunsListResponse, Error>, 'queryKey' | 'queryFn' | 'getNextPageParam'>
-) {
+export function useInfiniteRuns(filters: RunFilters) {
   return useInfiniteQuery({
     queryKey: ['runs', 'infinite', filters],
     queryFn: ({ pageParam = 0 }) =>
@@ -151,7 +149,6 @@ export function useInfiniteRuns(
       return allPages.reduce((sum, page) => sum + page.runs.length, 0);
     },
     initialPageParam: 0,
-    ...options,
   });
 }
 

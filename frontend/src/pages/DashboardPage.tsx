@@ -1,14 +1,13 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useMemo } from 'react';
-import { Responsive, WidthProvider, Layout } from 'react-grid-layout';
+import { useState, useMemo, useRef } from 'react';
+import { Responsive, useContainerWidth } from 'react-grid-layout';
+import type { Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { useProject } from '../api/client';
 import MetricCardWidget from '../components/Dashboard/MetricCardWidget';
 import ChartWidget from '../components/Dashboard/ChartWidget';
 import RecentRunsWidget from '../components/Dashboard/RecentRunsWidget';
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
 
 interface Widget {
   i: string;
@@ -25,6 +24,9 @@ export default function DashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const { data: project, isLoading: projectLoading } = useProject(parseInt(projectId || '0'));
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { width } = useContainerWidth(containerRef);
 
   // Default dashboard widgets
   const [widgets, setWidgets] = useState<Widget[]>([
@@ -203,34 +205,37 @@ export default function DashboardPage() {
       </div>
 
       {/* Grid Layout */}
-      <ResponsiveGridLayout
-        className="layout"
-        layouts={layouts}
-        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-        rowHeight={100}
-        onLayoutChange={handleLayoutChange}
-        isDraggable={isEditMode}
-        isResizable={isEditMode}
-        draggableHandle=".widget-drag-handle"
-      >
-        {widgets.map((widget) => (
-          <div key={widget.i} className="relative">
-            {isEditMode && (
-              <div className="absolute top-0 left-0 right-0 z-10 bg-gray-800 bg-opacity-90 text-white px-2 py-1 flex items-center justify-between widget-drag-handle cursor-move">
-                <span className="text-xs font-medium">{widget.type}</span>
-                <button
-                  onClick={() => handleRemoveWidget(widget.i)}
-                  className="text-red-300 hover:text-red-100 text-xs"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            <div className={isEditMode ? 'mt-6' : ''}>{renderWidget(widget)}</div>
-          </div>
-        ))}
-      </ResponsiveGridLayout>
+      <div ref={containerRef}>
+        <Responsive
+          className="layout"
+          layouts={layouts}
+          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+          cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+          rowHeight={100}
+          width={width}
+          onLayoutChange={handleLayoutChange}
+          isDraggable={isEditMode}
+          isResizable={isEditMode}
+          draggableHandle=".widget-drag-handle"
+        >
+          {widgets.map((widget) => (
+            <div key={widget.i} className="relative">
+              {isEditMode && (
+                <div className="absolute top-0 left-0 right-0 z-10 bg-gray-800 bg-opacity-90 text-white px-2 py-1 flex items-center justify-between widget-drag-handle cursor-move">
+                  <span className="text-xs font-medium">{widget.type}</span>
+                  <button
+                    onClick={() => handleRemoveWidget(widget.i)}
+                    className="text-red-300 hover:text-red-100 text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              <div className={isEditMode ? 'mt-6' : ''}>{renderWidget(widget)}</div>
+            </div>
+          ))}
+        </Responsive>
+      </div>
 
       {widgets.length === 0 && (
         <div className="card text-center py-12 mt-6">
