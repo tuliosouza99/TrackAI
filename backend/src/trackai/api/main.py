@@ -1,21 +1,44 @@
 """FastAPI application for TrackAI."""
 
+from contextlib import asynccontextmanager
 from pathlib import Path
+
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+from trackai.api.routes import mcp, metrics, projects, runs, views
+from trackai.config import load_config
 from trackai.db.connection import init_db
 
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "static"
 
-# Initialize database on startup
-init_db()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application startup and shutdown."""
+    config = load_config()
+
+    if config.database.storage_type == "s3":
+        print("S3 storage mode enabled - using READ-ONLY access")
+        print(f"Reading from: s3://{config.database.s3_bucket}/{config.database.s3_key}")
+
+    # Initialize database (will ATTACH S3 in read-only mode for visualization)
+    init_db()
+
+    yield
+
+    # No sync needed in visualization mode
+    print("Server shutdown complete")
+
 
 app = FastAPI(
     title="TrackAI",
     description="Lightweight experiment tracker for deep learning",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -34,9 +57,7 @@ async def health():
     return {"status": "healthy"}
 
 
-# Import and register routers
-from trackai.api.routes import projects, runs, metrics, mcp, views
-
+# Register routers
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
@@ -48,7 +69,7 @@ app.include_router(views.router, prefix="/api/views", tags=["views"])
 if STATIC_DIR.is_dir():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/{full_path:path}")
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         """Serve the frontend SPA - return index.html for all non-API routes."""
         file_path = STATIC_DIR / full_path
@@ -58,6 +79,4 @@ if STATIC_DIR.is_dir():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run("trackai.api.main:app", host="0.0.0.0", port=8000, reload=True)

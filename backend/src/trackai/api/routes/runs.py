@@ -2,18 +2,19 @@
 
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
 
-from trackai.db.connection import get_db
-from trackai.db.schema import Run, Metric, Config
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
 from trackai.api.models import (
-    RunResponse,
     RunCreate,
+    RunResponse,
     RunsListResponse,
     RunSummary,
 )
+from trackai.db.connection import get_db
+from trackai.db.schema import Config, Metric, Run
 
 router = APIRouter()
 
@@ -24,7 +25,9 @@ def list_runs(
     group: Optional[str] = None,
     state: Optional[str] = None,
     search: Optional[str] = None,
-    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated, AND logic)"),
+    tags: Optional[str] = Query(
+        None, description="Filter by tags (comma-separated, AND logic)"
+    ),
     limit: int = 100,
     offset: int = 0,
     sort_by: str = "created_at",
@@ -67,7 +70,7 @@ def list_runs(
         )
     if tags:
         # Filter by tags (AND logic - run must have all specified tags)
-        tag_list = [tag.strip() for tag in tags.split(',')]
+        tag_list = [tag.strip() for tag in tags.split(",")]
         for tag in tag_list:
             # Use LIKE to check if tag exists in comma-separated tags field
             query = query.filter(Run.tags.ilike(f"%{tag}%"))
@@ -126,9 +129,7 @@ def get_run_summary(run_id: int, db: Session = Depends(get_db)):
 
     # Get latest metrics (summary metrics with step=None)
     summary_metrics = (
-        db.query(Metric)
-        .filter(Metric.run_id == run_id, Metric.step.is_(None))
-        .all()
+        db.query(Metric).filter(Metric.run_id == run_id, Metric.step.is_(None)).all()
     )
 
     # Build metrics dict

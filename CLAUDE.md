@@ -8,17 +8,35 @@ TrackAI is a lightweight experiment tracker for deep learning, built as an alter
 
 ## Development Commands
 
+### CLI Installation
+
+TrackAI provides a CLI tool for managing the server and database:
+
+```bash
+# Install dependencies (includes CLI)
+cd backend && uv sync
+
+# The `trackai` command is now available
+trackai --help
+```
+
 ### Quick Start (Production Mode)
 
 TrackAI serves both backend and frontend from a single port in production:
 
 ```bash
 # Start everything (automatically finds available port starting from 8000)
-./start.sh
+trackai server start
+
+# Or specify a port
+trackai server start --port 8080
+
+# Disable auto-reload
+trackai server start --no-reload
 ```
 
-This script:
-- Finds the first available port starting from 8000
+This command:
+- Finds the first available port starting from 8000 (if not specified)
 - Builds the frontend
 - Serves everything from the backend on the selected port
 
@@ -28,14 +46,19 @@ For active frontend development with hot reload:
 
 ```bash
 # Run backend and frontend separately
-./dev.sh
+trackai server dev
+
+# Or specify custom ports
+trackai server dev --backend-port 8001 --frontend-port 5174
 ```
 
-This script:
+This command:
 - Finds available ports for both backend (starting from 8000) and frontend (starting from 5173)
 - Starts backend and frontend on the selected ports
 - Frontend automatically proxies `/api` requests to the backend
 - Displays URLs for both servers
+
+**Note**: The old `start.sh` and `dev.sh` scripts are deprecated. Use the `trackai` CLI instead.
 
 ### Backend (Python/FastAPI)
 
@@ -83,10 +106,12 @@ cd frontend && npm run lint
 **Framework**: FastAPI with SQLAlchemy ORM
 
 **Database**:
-- SQLite database stored at `~/.trackai/trackai.db` (centralized location)
+- DuckDB database stored at `~/.trackai/trackai.duckdb` (centralized location)
+- Supports both local and S3 storage modes
 - Can be overridden via `TRACKAI_DB_PATH` environment variable
 - Tables: `projects`, `runs`, `metrics`, `configs`, `files`, `custom_views`, `dashboards`
 - Metrics use EAV (Entity-Attribute-Value) model for flexibility
+- **S3 Support**: Split architecture - SDK downloads/uploads on init/finish, server uses read-only ATTACH to S3
 
 **Key Components**:
 - `src/trackai/__init__.py` - Public API (`init()`, `log()`, `log_system()`, `finish()`)
@@ -164,21 +189,72 @@ TrackAI provides a trackio-compatible API for logging experiments:
 
 **Check statistics**:
 ```bash
-sqlite3 ~/.trackai/trackai.db "SELECT
-  (SELECT COUNT(*) FROM projects) as projects,
-  (SELECT COUNT(*) FROM runs) as runs,
-  (SELECT COUNT(*) FROM metrics) as metrics;"
+trackai db info
 ```
 
 **Backup**:
 ```bash
-cp ~/.trackai/trackai.db ~/backups/trackai-backup.db
+trackai db backup --output ~/backups/trackai-backup.duckdb
 ```
 
 **Reset (deletes all data)**:
 ```bash
-rm ~/.trackai/trackai.db
+trackai db reset
 ```
+
+**Migrate from SQLite**:
+```bash
+trackai db migrate --sqlite-path ~/.trackai/trackai.db --duckdb-path ~/.trackai/trackai.duckdb --yes
+```
+
+**S3 Configuration**:
+
+When S3 storage is configured, TrackAI uses a **split architecture**:
+
+1. **Experiment Logging (Python SDK)**:
+   - `trackai.init()` automatically downloads the database from S3
+   - Metrics are logged to a local temp file (fast writes during training)
+   - `trackai.finish()` automatically uploads the complete database back to S3
+   - No manual sync commands needed
+
+2. **Visualization Server (FastAPI)**:
+   - Uses DuckDB's ATTACH feature for read-only S3 access
+   - No downloads or local cache (instant startup)
+   - View experiments directly from S3
+
+**Setup**:
+```bash
+# Set AWS credentials (add to ~/.bashrc or ~/.zshrc)
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+export AWS_DEFAULT_REGION="us-east-1"
+
+# Configure TrackAI for S3
+trackai config s3 --bucket my-trackai-experiments --key trackai.duckdb --region us-east-1
+
+# Start visualization server (reads directly from S3, no downloads)
+trackai server dev
+
+# Log experiments (auto-sync on init/finish)
+python train.py  # Uses trackai.init() and trackai.finish()
+```
+
+**Manual sync commands** (optional, for backup/restore):
+```bash
+trackai db sync                      # Upload to S3 (default)
+trackai db sync --direction upload   # Upload to S3
+trackai db sync --direction download # Download from S3
+trackai db sync --direction both     # Sync both ways
+
+# View current configuration
+trackai config show
+```
+
+**Benefits**:
+- ✅ **No slow startup/shutdown** - Server reads directly from S3
+- ✅ **No manual sync** - Automatic on init/finish for experiments
+- ✅ **Fast logging** - Local writes during training
+- ✅ **No hanging** - Server doesn't upload on shutdown
 
 ## Development Workflow
 
@@ -187,20 +263,20 @@ rm ~/.trackai/trackai.db
 Run everything from a single command:
 
 ```bash
-./start.sh
+trackai server start
 ```
 
-The backend serves the built frontend from the `/static` directory. The script automatically finds an available port starting from 8000 and displays the URL.
+The backend serves the built frontend from the `/static` directory. The CLI automatically finds an available port starting from 8000 and displays the URL.
 
 ### Development Mode (Hot Reload)
 
 For active development with frontend hot reload:
 
 ```bash
-./dev.sh
+trackai server dev
 ```
 
-The script automatically finds available ports for both servers:
+The CLI automatically finds available ports for both servers:
 - Backend: starts from port 8000
 - Frontend: starts from port 5173
 - Frontend automatically proxies `/api` requests to the backend's port
@@ -221,8 +297,11 @@ The script automatically finds available ports for both servers:
 
 ## Key Design Decisions
 
+- **Database Engine**: Uses DuckDB instead of SQLite for better analytics performance and S3 support
 - **Metrics Storage**: Uses EAV model to support arbitrary metric structures without schema changes
-- **Database Location**: Centralized at `~/.trackai/trackai.db` to access experiments from any project
+- **Database Location**: Centralized at `~/.trackai/trackai.duckdb` to access experiments from any project
+- **S3 Storage**: Split architecture - SDK downloads on init/uploads on finish for fast logging; server uses read-only ATTACH for instant startup
+- **CLI Management**: Unified `trackai` CLI command for server management, database operations, and configuration
 - **API Compatibility**: Python API designed to be trackio-compatible for easy migration
 - **Frontend Performance**: Virtualized tables and React Query caching for handling large datasets
 - **Resume Support**: Runs can be resumed using `resume="allow"` or `resume="must"` modes

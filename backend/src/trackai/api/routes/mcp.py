@@ -3,12 +3,14 @@ MCP (Model Context Protocol) Server endpoints for LLM integration.
 These endpoints provide tools for AI agents to interact with TrackAI.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from ...db.connection import get_db
-from ...db.schema import Project, Run, Metric
+from ...db.schema import Metric, Project, Run
 from ...services.logger import LoggingService
 
 router = APIRouter()
@@ -18,8 +20,10 @@ router = APIRouter()
 # Request/Response Models
 # ============================================================================
 
+
 class MCPResponse(BaseModel):
     """Standard MCP response wrapper"""
+
     success: bool
     data: Any = None
     error: Optional[str] = None
@@ -62,6 +66,7 @@ class GetRunSummaryRequest(BaseModel):
 # MCP Tool Endpoints
 # ============================================================================
 
+
 @router.post("/get_all_projects", response_model=MCPResponse)
 async def get_all_projects(db: Session = Depends(get_db)):
     """
@@ -72,23 +77,26 @@ async def get_all_projects(db: Session = Depends(get_db)):
     try:
         from sqlalchemy import func
 
-        projects_query = db.query(
-            Project,
-            func.count(Run.id).label("total_runs")
-        ).outerjoin(Run).group_by(Project.id)
+        projects_query = (
+            db.query(Project, func.count(Run.id).label("total_runs"))
+            .outerjoin(Run)
+            .group_by(Project.id)
+        )
 
         projects = projects_query.all()
 
         result = []
         for project, total_runs in projects:
-            result.append({
-                "id": project.id,
-                "name": project.name,
-                "project_id": project.project_id,
-                "total_runs": total_runs or 0,
-                "created_at": project.created_at.isoformat(),
-                "updated_at": project.updated_at.isoformat(),
-            })
+            result.append(
+                {
+                    "id": project.id,
+                    "name": project.name,
+                    "project_id": project.project_id,
+                    "total_runs": total_runs or 0,
+                    "created_at": project.created_at.isoformat(),
+                    "updated_at": project.updated_at.isoformat(),
+                }
+            )
 
         return MCPResponse(success=True, data=result)
     except Exception as e:
@@ -97,8 +105,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
 
 @router.post("/get_runs_for_project", response_model=MCPResponse)
 async def get_runs_for_project(
-    request: GetRunsForProjectRequest,
-    db: Session = Depends(get_db)
+    request: GetRunsForProjectRequest, db: Session = Depends(get_db)
 ):
     """
     Get all runs for a specific project.
@@ -119,15 +126,17 @@ async def get_runs_for_project(
 
         result = []
         for run in runs:
-            result.append({
-                "id": run.id,
-                "run_id": run.run_id,
-                "name": run.name,
-                "state": run.state,
-                "group_name": run.group_name,
-                "created_at": run.created_at.isoformat(),
-                "updated_at": run.updated_at.isoformat(),
-            })
+            result.append(
+                {
+                    "id": run.id,
+                    "run_id": run.run_id,
+                    "name": run.name,
+                    "state": run.state,
+                    "group_name": run.group_name,
+                    "created_at": run.created_at.isoformat(),
+                    "updated_at": run.updated_at.isoformat(),
+                }
+            )
 
         return MCPResponse(success=True, data=result)
     except Exception as e:
@@ -136,8 +145,7 @@ async def get_runs_for_project(
 
 @router.post("/get_metrics_for_run", response_model=MCPResponse)
 async def get_metrics_for_run(
-    request: GetMetricsForRunRequest,
-    db: Session = Depends(get_db)
+    request: GetMetricsForRunRequest, db: Session = Depends(get_db)
 ):
     """
     Get all unique metric names for a specific run.
@@ -146,9 +154,12 @@ async def get_metrics_for_run(
         run_id: The ID of the run
     """
     try:
-        metrics = db.query(Metric.attribute_path).filter(
-            Metric.run_id == request.run_id
-        ).distinct().all()
+        metrics = (
+            db.query(Metric.attribute_path)
+            .filter(Metric.run_id == request.run_id)
+            .distinct()
+            .all()
+        )
 
         metric_names = [m[0] for m in metrics]
 
@@ -159,8 +170,7 @@ async def get_metrics_for_run(
 
 @router.post("/get_metric_values", response_model=MCPResponse)
 async def get_metric_values(
-    request: GetMetricValuesRequest,
-    db: Session = Depends(get_db)
+    request: GetMetricValuesRequest, db: Session = Depends(get_db)
 ):
     """
     Get values for a specific metric across all steps.
@@ -171,10 +181,15 @@ async def get_metric_values(
         limit: Maximum number of values to return (default: 1000)
     """
     try:
-        metrics_query = db.query(Metric).filter(
-            Metric.run_id == request.run_id,
-            Metric.attribute_path == request.metric_path
-        ).order_by(Metric.step).limit(request.limit)
+        metrics_query = (
+            db.query(Metric)
+            .filter(
+                Metric.run_id == request.run_id,
+                Metric.attribute_path == request.metric_path,
+            )
+            .order_by(Metric.step)
+            .limit(request.limit)
+        )
 
         metrics = metrics_query.all()
 
@@ -191,12 +206,16 @@ async def get_metric_values(
             elif metric.attribute_type == "bool":
                 value = metric.bool_value
 
-            result.append({
-                "step": metric.step,
-                "timestamp": metric.timestamp.isoformat() if metric.timestamp else None,
-                "value": value,
-                "type": metric.attribute_type,
-            })
+            result.append(
+                {
+                    "step": metric.step,
+                    "timestamp": metric.timestamp.isoformat()
+                    if metric.timestamp
+                    else None,
+                    "value": value,
+                    "type": metric.attribute_type,
+                }
+            )
 
         return MCPResponse(success=True, data=result)
     except Exception as e:
@@ -205,8 +224,7 @@ async def get_metric_values(
 
 @router.post("/get_project_summary", response_model=MCPResponse)
 async def get_project_summary(
-    request: GetProjectSummaryRequest,
-    db: Session = Depends(get_db)
+    request: GetProjectSummaryRequest, db: Session = Depends(get_db)
 ):
     """
     Get summary statistics for a project.
@@ -220,20 +238,23 @@ async def get_project_summary(
             return MCPResponse(success=False, error="Project not found")
 
         # Count runs by state
-        running_runs = db.query(Run).filter(
-            Run.project_id == request.project_id,
-            Run.state == "running"
-        ).count()
+        running_runs = (
+            db.query(Run)
+            .filter(Run.project_id == request.project_id, Run.state == "running")
+            .count()
+        )
 
-        completed_runs = db.query(Run).filter(
-            Run.project_id == request.project_id,
-            Run.state == "completed"
-        ).count()
+        completed_runs = (
+            db.query(Run)
+            .filter(Run.project_id == request.project_id, Run.state == "completed")
+            .count()
+        )
 
-        failed_runs = db.query(Run).filter(
-            Run.project_id == request.project_id,
-            Run.state == "failed"
-        ).count()
+        failed_runs = (
+            db.query(Run)
+            .filter(Run.project_id == request.project_id, Run.state == "failed")
+            .count()
+        )
 
         total_runs = running_runs + completed_runs + failed_runs
 
@@ -255,10 +276,7 @@ async def get_project_summary(
 
 
 @router.post("/get_run_summary", response_model=MCPResponse)
-async def get_run_summary(
-    request: GetRunSummaryRequest,
-    db: Session = Depends(get_db)
-):
+async def get_run_summary(request: GetRunSummaryRequest, db: Session = Depends(get_db)):
     """
     Get summary for a specific run including latest metric values.
 
@@ -274,18 +292,26 @@ async def get_run_summary(
         from sqlalchemy import func
 
         # Get latest metrics (where step is null or max step)
-        subquery = db.query(
-            Metric.attribute_path,
-            func.max(Metric.step).label("max_step")
-        ).filter(
-            Metric.run_id == request.run_id
-        ).group_by(Metric.attribute_path).subquery()
+        subquery = (
+            db.query(Metric.attribute_path, func.max(Metric.step).label("max_step"))
+            .filter(Metric.run_id == request.run_id)
+            .group_by(Metric.attribute_path)
+            .subquery()
+        )
 
-        metrics = db.query(Metric).join(
-            subquery,
-            (Metric.attribute_path == subquery.c.attribute_path) &
-            ((Metric.step == subquery.c.max_step) | (subquery.c.max_step.is_(None)))
-        ).filter(Metric.run_id == request.run_id).all()
+        metrics = (
+            db.query(Metric)
+            .join(
+                subquery,
+                (Metric.attribute_path == subquery.c.attribute_path)
+                & (
+                    (Metric.step == subquery.c.max_step)
+                    | (subquery.c.max_step.is_(None))
+                ),
+            )
+            .filter(Metric.run_id == request.run_id)
+            .all()
+        )
 
         metrics_dict = {}
         for metric in metrics:
@@ -336,31 +362,36 @@ async def bulk_log(request: BulkLogRequest, db: Session = Depends(get_db)):
 
         # Get or create project
         from ...db.schema import Project
+
         project = db.query(Project).filter(Project.name == request.project).first()
         if not project:
-            project = Project(name=request.project, project_id=f"{request.project}_auto")
+            project = Project(
+                name=request.project, project_id=f"{request.project}_auto"
+            )
             db.add(project)
             db.commit()
             db.refresh(project)
 
         # Get or create run
         if request.run_id:
-            run = db.query(Run).filter(
-                Run.project_id == project.id,
-                Run.run_id == request.run_id
-            ).first()
+            run = (
+                db.query(Run)
+                .filter(Run.project_id == project.id, Run.run_id == request.run_id)
+                .first()
+            )
         else:
             run = None
 
         if not run:
             # Create new run
             import uuid
+
             run_id_str = request.run_id or f"run-{uuid.uuid4().hex[:8]}"
             run = Run(
                 project_id=project.id,
                 run_id=run_id_str,
                 name=request.name or run_id_str,
-                state="running"
+                state="running",
             )
             db.add(run)
             db.commit()
@@ -372,13 +403,11 @@ async def bulk_log(request: BulkLogRequest, db: Session = Depends(get_db)):
         # Log config if provided
         if request.config:
             from ...db.schema import Config
+
             for key, value in request.config.items():
                 import json
-                config_entry = Config(
-                    run_id=run.id,
-                    key=key,
-                    value=json.dumps(value)
-                )
+
+                config_entry = Config(run_id=run.id, key=key, value=json.dumps(value))
                 db.add(config_entry)
             db.commit()
 
@@ -387,8 +416,8 @@ async def bulk_log(request: BulkLogRequest, db: Session = Depends(get_db)):
             data={
                 "run_id": run.id,
                 "run_identifier": run.run_id,
-                "metrics_logged": len(request.metrics)
-            }
+                "metrics_logged": len(request.metrics),
+            },
         )
     except Exception as e:
         db.rollback()
@@ -402,8 +431,7 @@ async def upload_db_to_space():
     This feature is deferred for future implementation.
     """
     return MCPResponse(
-        success=False,
-        error="Feature not yet implemented. Use local database storage."
+        success=False, error="Feature not yet implemented. Use local database storage."
     )
 
 
@@ -414,6 +442,5 @@ async def bulk_upload_media():
     This feature is deferred for future implementation.
     """
     return MCPResponse(
-        success=False,
-        error="Feature not yet implemented. Store file paths in metrics."
+        success=False, error="Feature not yet implemented. Store file paths in metrics."
     )

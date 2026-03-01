@@ -1,12 +1,11 @@
 """API routes for custom views."""
 
-import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from trackai.api.models import CustomViewCreate, CustomViewResponse
 from trackai.db.connection import get_db
 from trackai.db.schema import CustomView, Project
-from trackai.api.models import CustomViewCreate, CustomViewResponse
 
 router = APIRouter()
 

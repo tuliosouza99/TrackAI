@@ -2,11 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
+from trackai.api.models import ProjectCreate, ProjectResponse, ProjectSummary
 from trackai.db.connection import get_db
-from trackai.db.schema import Project, Run, Metric
-from trackai.api.models import ProjectResponse, ProjectSummary, ProjectCreate
+from trackai.db.schema import Metric, Project, Run
 
 router = APIRouter()
 
@@ -28,27 +27,47 @@ def list_projects(
     Returns:
         List of projects with run statistics
     """
-    projects = db.query(Project).order_by(Project.created_at.desc()).limit(limit).offset(offset).all()
+    projects = (
+        db.query(Project)
+        .order_by(Project.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
 
     # Add run statistics for each project
     result = []
     for project in projects:
         total_runs = db.query(Run).filter(Run.project_id == project.id).count()
-        running_runs = db.query(Run).filter(Run.project_id == project.id, Run.state == "running").count()
-        completed_runs = db.query(Run).filter(Run.project_id == project.id, Run.state == "completed").count()
-        failed_runs = db.query(Run).filter(Run.project_id == project.id, Run.state == "failed").count()
+        running_runs = (
+            db.query(Run)
+            .filter(Run.project_id == project.id, Run.state == "running")
+            .count()
+        )
+        completed_runs = (
+            db.query(Run)
+            .filter(Run.project_id == project.id, Run.state == "completed")
+            .count()
+        )
+        failed_runs = (
+            db.query(Run)
+            .filter(Run.project_id == project.id, Run.state == "failed")
+            .count()
+        )
 
-        result.append(ProjectSummary(
-            id=project.id,
-            name=project.name,
-            project_id=project.project_id,
-            created_at=project.created_at,
-            updated_at=project.updated_at,
-            total_runs=total_runs,
-            running_runs=running_runs,
-            completed_runs=completed_runs,
-            failed_runs=failed_runs,
-        ))
+        result.append(
+            ProjectSummary(
+                id=project.id,
+                name=project.name,
+                project_id=project.project_id,
+                created_at=project.created_at,
+                updated_at=project.updated_at,
+                total_runs=total_runs,
+                running_runs=running_runs,
+                completed_runs=completed_runs,
+                failed_runs=failed_runs,
+            )
+        )
 
     return result
 
@@ -71,9 +90,21 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
     # Get run statistics
     total_runs = db.query(Run).filter(Run.project_id == project_id).count()
-    running_runs = db.query(Run).filter(Run.project_id == project_id, Run.state == "running").count()
-    completed_runs = db.query(Run).filter(Run.project_id == project_id, Run.state == "completed").count()
-    failed_runs = db.query(Run).filter(Run.project_id == project_id, Run.state == "failed").count()
+    running_runs = (
+        db.query(Run)
+        .filter(Run.project_id == project_id, Run.state == "running")
+        .count()
+    )
+    completed_runs = (
+        db.query(Run)
+        .filter(Run.project_id == project_id, Run.state == "completed")
+        .count()
+    )
+    failed_runs = (
+        db.query(Run)
+        .filter(Run.project_id == project_id, Run.state == "failed")
+        .count()
+    )
 
     return ProjectSummary(
         id=project.id,
@@ -105,13 +136,15 @@ def get_project_tags(project_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Get all runs with tags
-    runs = db.query(Run).filter(Run.project_id == project_id, Run.tags.isnot(None)).all()
+    runs = (
+        db.query(Run).filter(Run.project_id == project_id, Run.tags.isnot(None)).all()
+    )
 
     # Collect all unique tags
     tags_set = set()
     for run in runs:
         if run.tags:
-            tags = [tag.strip() for tag in run.tags.split(',')]
+            tags = [tag.strip() for tag in run.tags.split(",")]
             tags_set.update(tags)
 
     return sorted(list(tags_set))
@@ -167,11 +200,15 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     # Check if project with same name or project_id already exists
     existing = (
         db.query(Project)
-        .filter((Project.name == project.name) | (Project.project_id == project.project_id))
+        .filter(
+            (Project.name == project.name) | (Project.project_id == project.project_id)
+        )
         .first()
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Project with this name or ID already exists")
+        raise HTTPException(
+            status_code=400, detail="Project with this name or ID already exists"
+        )
 
     db_project = Project(**project.model_dump())
     db.add(db_project)

@@ -1,13 +1,19 @@
 """API routes for metrics."""
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import distinct
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import distinct
+from sqlalchemy.orm import Session
+
+from trackai.api.models import (
+    MetricCompareRequest,
+    MetricSummaryRequest,
+    MetricValue,
+    MetricValuesResponse,
+)
 from trackai.db.connection import get_db
 from trackai.db.schema import Metric, Run
-from trackai.api.models import MetricValue, MetricValuesResponse, MetricCompareRequest, MetricSummaryRequest
 
 router = APIRouter()
 
@@ -40,7 +46,9 @@ def list_metrics(run_id: int, db: Session = Depends(get_db)):
     return [m[0] for m in metrics]
 
 
-@router.get("/runs/{run_id}/metric/{metric_path:path}", response_model=MetricValuesResponse)
+@router.get(
+    "/runs/{run_id}/metric/{metric_path:path}", response_model=MetricValuesResponse
+)
 def get_metric_values(
     run_id: int,
     metric_path: str,

@@ -1,12 +1,15 @@
 """Logging service for database operations."""
 
+import hashlib
 import json
+import time
 from datetime import datetime
 from typing import Any, Optional
+
 from sqlalchemy.orm import Session
 
-from trackai.db.schema import Project, Run, Metric, Config
 from trackai.db.connection import get_session
+from trackai.db.schema import Config, Metric, Project, Run
 
 
 class LoggingService:
@@ -42,9 +45,6 @@ class LoggingService:
 
         if not project:
             # Create new project with a generated project_id
-            import hashlib
-            import time
-
             project_id = f"{project_name}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:16]}"
             project = Project(name=project_name, project_id=project_id)
             self.db.add(project)

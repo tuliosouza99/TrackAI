@@ -3,21 +3,246 @@
 import os
 from pathlib import Path
 from typing import Generator
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from .schema import Base
 
-# Default database path
-DEFAULT_DB_DIR = Path.home() / ".trackai"
-DEFAULT_DB_PATH = DEFAULT_DB_DIR / "trackai.db"
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.orm import Session, sessionmaker
 
-# Allow override via environment variable
-DB_PATH = os.getenv("TRACKAI_DB_PATH", str(DEFAULT_DB_PATH))
+from trackai.config import load_config
+
+
+def _detect_mode(config) -> str:
+    """Detect the mode based on context if mode is 'auto'."""
+    mode = config.database.mode
+
+    if mode == "auto":
+        # Detect context - check if we're in FastAPI
+        import sys
+
+        if "uvicorn" in sys.modules or "fastapi" in sys.modules:
+            return "visualization"
+        else:
+            return "logging"
+
+    return mode
 
 
 def get_db_url() -> str:
     """Get the database URL."""
-    return f"sqlite:///{DB_PATH}"
+    config = load_config()
+
+    if config.database.storage_type == "local":
+        db_path = Path(config.database.db_path).expanduser()
+        return f"duckdb:///{db_path}"
+
+    elif config.database.storage_type == "s3":
+        mode = _detect_mode(config)
+
+        if mode == "visualization":
+            # Return memory database - we'll ATTACH S3 database
+            return "duckdb:///:memory:"
+        else:  # logging mode
+            # Return the path set by Run.__init__ or default
+            db_path = os.getenv("TRACKAI_DB_PATH") or config.database.local_cache_path
+            return f"duckdb:///{db_path}"
+
+    # Fallback to local
+    db_path = Path(config.database.db_path).expanduser()
+    return f"duckdb:///{db_path}"
+
+
+def _setup_s3_connection(dbapi_conn, connection_record):
+    """
+    Event listener to configure S3 on every new connection.
+    This is called automatically by SQLAlchemy for each new connection.
+    """
+    config = load_config()
+
+    if config.database.storage_type != "s3":
+        return
+
+    cursor = dbapi_conn.cursor()
+
+    # Install and load httpfs extension for S3 support
+    cursor.execute("INSTALL httpfs;")
+    cursor.execute("LOAD httpfs;")
+    cursor.execute(f"SET s3_region='{config.database.s3_region}';")
+
+    # Get AWS credentials from environment
+    access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    if access_key and secret_key:
+        cursor.execute(f"SET s3_access_key_id='{access_key}';")
+        cursor.execute(f"SET s3_secret_access_key='{secret_key}';")
+
+    # ATTACH S3 database in visualization mode
+    mode = _detect_mode(config)
+
+    if mode == "visualization":
+        s3_path = f"s3://{config.database.s3_bucket}/{config.database.s3_key}"
+        try:
+            # Attach as main database (not alias)
+            cursor.execute(f"ATTACH '{s3_path}' AS trackai (READ_ONLY);")
+            # Make it the default database
+            cursor.execute("USE trackai;")
+        except Exception as e:
+            print(f"Warning: Could not attach S3 database: {e}")
+            print("Make sure the database file exists in S3")
+
+    cursor.close()
+
+
+def _configure_s3(engine) -> None:
+    """
+    Configure S3 extension for DuckDB and attach S3 database in visualization mode.
+
+    Args:
+        engine: SQLAlchemy engine
+    """
+    config = load_config()
+
+    # Add event listener to configure S3 on every connection
+    event.listen(engine, "connect", _setup_s3_connection)
+
+    # Also configure the initial connection for immediate use
+    with engine.connect() as conn:
+        # Install and load httpfs extension for S3 support
+        conn.execute(text("INSTALL httpfs;"))
+        conn.execute(text("LOAD httpfs;"))
+        conn.execute(text(f"SET s3_region='{config.database.s3_region}';"))
+
+        # Get AWS credentials from environment
+        access_key = os.getenv("AWS_ACCESS_KEY_ID")
+        secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+        if access_key and secret_key:
+            conn.execute(text(f"SET s3_access_key_id='{access_key}';"))
+            conn.execute(text(f"SET s3_secret_access_key='{secret_key}';"))
+
+        # ATTACH S3 database in visualization mode
+        mode = _detect_mode(config)
+
+        if mode == "visualization":
+            s3_path = f"s3://{config.database.s3_bucket}/{config.database.s3_key}"
+            try:
+                # Attach as main database (not alias)
+                conn.execute(text(f"ATTACH '{s3_path}' AS trackai (READ_ONLY);"))
+                # Make it the default database
+                conn.execute(text("USE trackai;"))
+                print(f"Attached S3 database: {s3_path} (READ-ONLY)")
+            except Exception as e:
+                print(f"Warning: Could not attach S3 database: {e}")
+                print("Make sure the database file exists in S3")
+
+        conn.commit()
+
+
+def _create_duckdb_tables(engine) -> None:
+    """Create DuckDB tables using raw SQL (DuckDB doesn't support SERIAL)."""
+    with engine.connect() as conn:
+        # Projects table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR UNIQUE NOT NULL,
+                project_id VARCHAR UNIQUE NOT NULL,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """))
+
+        # Runs table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS runs (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL,
+                run_id VARCHAR NOT NULL,
+                name VARCHAR,
+                group_name VARCHAR,
+                tags VARCHAR,
+                state VARCHAR,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP,
+                UNIQUE(project_id, run_id)
+            )
+        """))
+
+        # Configs table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS configs (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                key VARCHAR NOT NULL,
+                value VARCHAR,
+                UNIQUE(run_id, key)
+            )
+        """))
+
+        # Metrics table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                attribute_path VARCHAR NOT NULL,
+                attribute_type VARCHAR NOT NULL,
+                step INTEGER,
+                timestamp TIMESTAMP,
+                float_value DOUBLE,
+                int_value INTEGER,
+                string_value VARCHAR,
+                bool_value BOOLEAN
+            )
+        """))
+
+        # Files table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS files (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                file_type VARCHAR NOT NULL,
+                file_path VARCHAR,
+                file_hash VARCHAR,
+                size INTEGER,
+                file_metadata VARCHAR
+            )
+        """))
+
+        # Custom views table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS custom_views (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL,
+                name VARCHAR NOT NULL,
+                filters VARCHAR,
+                columns VARCHAR,
+                sort_by VARCHAR,
+                created_at TIMESTAMP
+            )
+        """))
+
+        # Dashboards table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS dashboards (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL,
+                name VARCHAR NOT NULL,
+                widgets VARCHAR,
+                layout VARCHAR,
+                created_at TIMESTAMP
+            )
+        """))
+
+        # Create indexes
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_runs_project_id ON runs(project_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_runs_group_name ON runs(group_name)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_metrics_run_attr ON metrics(run_id, attribute_path)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_metrics_run_step ON metrics(run_id, step)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_metrics_attr_type ON metrics(attribute_type)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_files_run_type ON files(run_id, file_type)"))
+
+        conn.commit()
 
 
 def init_db(db_path: str | None = None) -> None:
@@ -25,40 +250,75 @@ def init_db(db_path: str | None = None) -> None:
     Initialize the database by creating all tables.
 
     Args:
-        db_path: Optional custom database path. If not provided, uses default.
+        db_path: Optional custom database path. If not provided, uses config.
     """
-    global DB_PATH
     if db_path:
-        DB_PATH = db_path
+        # Override config temporarily
+        os.environ["TRACKAI_DB_PATH"] = db_path
 
-    # Create directory if it doesn't exist
-    db_dir = Path(DB_PATH).parent
+    config = load_config()
+
+    # Skip table creation in S3 visualization mode
+    if config.database.storage_type == "s3" and _detect_mode(config) == "visualization":
+        print("S3 visualization mode - skipping table creation")
+        # Still need to configure S3 and attach
+        engine = create_engine(get_db_url(), echo=False)
+        _configure_s3(engine)
+        return
+
+    # Create directory if it doesn't exist (for local/logging modes)
+    if config.database.storage_type == "local":
+        db_dir = Path(config.database.db_path).expanduser().parent
+    else:
+        db_dir = Path(config.database.local_cache_path).expanduser().parent
+
     db_dir.mkdir(parents=True, exist_ok=True)
 
     # Create engine and tables
     engine = create_engine(
         get_db_url(),
-        connect_args={"check_same_thread": False},  # SQLite specific
         echo=False,  # Set to True for SQL query logging
     )
-    Base.metadata.create_all(bind=engine)
+
+    # Configure S3 if needed
+    if config.database.storage_type == "s3":
+        _configure_s3(engine)
+
+    # Create tables using DuckDB-compatible SQL
+    _create_duckdb_tables(engine)
 
 
 def get_engine():
     """Get the SQLAlchemy engine."""
-    return create_engine(
+    from trackai.config import load_config
+
+    engine = create_engine(
         get_db_url(),
-        connect_args={"check_same_thread": False},
         echo=False,
     )
 
+    # Configure S3 if in S3 mode
+    config = load_config()
+    if config.database.storage_type == "s3":
+        _configure_s3(engine)
 
-# Session factory
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=get_engine(),
-)
+    return engine
+
+
+# Lazy session factory (don't create engine at import time)
+_SessionLocal = None
+
+
+def _get_session_factory():
+    """Get or create the session factory lazily."""
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=get_engine(),
+        )
+    return _SessionLocal
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -70,6 +330,7 @@ def get_db() -> Generator[Session, None, None]:
         def endpoint(db: Session = Depends(get_db)):
             ...
     """
+    SessionLocal = _get_session_factory()
     db = SessionLocal()
     try:
         yield db
@@ -79,4 +340,5 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_session() -> Session:
     """Get a standalone database session (for non-FastAPI usage)."""
+    SessionLocal = _get_session_factory()
     return SessionLocal()

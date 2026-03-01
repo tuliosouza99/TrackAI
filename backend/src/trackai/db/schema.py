@@ -1,16 +1,17 @@
 """Database schema for TrackAI experiment tracker."""
 
 from datetime import datetime
+
 from sqlalchemy import (
+    Boolean,
     Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    Float,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Index,
     UniqueConstraint,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -46,7 +47,9 @@ class Run(Base):
     __tablename__ = "runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
     run_id = Column(String, nullable=False)
     name = Column(String)
     group_name = Column(String, index=True)
@@ -122,11 +125,15 @@ class File(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     run_id = Column(Integer, ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
-    file_type = Column(String, nullable=False)  # model, prediction, source_code, sample_batch
+    file_type = Column(
+        String, nullable=False
+    )  # model, prediction, source_code, sample_batch
     file_path = Column(String, nullable=False)
     file_hash = Column(String)
     size = Column(Integer)
-    file_metadata = Column(Text)  # JSON (renamed from 'metadata' to avoid SQLAlchemy conflict)
+    file_metadata = Column(
+        Text
+    )  # JSON (renamed from 'metadata' to avoid SQLAlchemy conflict)
 
     # Relationship
     run = relationship("Run", back_populates="files")
@@ -141,7 +148,9 @@ class CustomView(Base):
     __tablename__ = "custom_views"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
     name = Column(String, nullable=False)
     filters = Column(Text)  # JSON
     columns = Column(Text)  # JSON
@@ -158,7 +167,9 @@ class Dashboard(Base):
     __tablename__ = "dashboards"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
     name = Column(String, nullable=False)
     widgets = Column(Text)  # JSON array of widget configs
     layout = Column(Text)  # JSON grid layout
