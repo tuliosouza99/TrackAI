@@ -208,3 +208,10 @@ __marimo__/
 
 # Files
 exports/
+.DS_Store
+
+# Frontend build output
+static/
+
+# VsCode
+.vscode/

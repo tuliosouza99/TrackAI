@@ -36,6 +36,7 @@ class RunBase(BaseModel):
     run_id: str
     name: Optional[str] = None
     group_name: Optional[str] = None
+    tags: Optional[str] = None  # Comma-separated tags
     state: str = "running"
 
 
@@ -108,6 +109,11 @@ class MetricCompareRequest(BaseModel):
     metric_paths: list[str]
 
 
+class MetricSummaryRequest(BaseModel):
+    run_ids: list[int]
+    metric_paths: list[str]
+
+
 # Config models
 class ConfigCreate(BaseModel):
     run_id: int
@@ -150,7 +156,6 @@ class FileResponse(BaseModel):
 
 # Custom View models
 class CustomViewCreate(BaseModel):
-    project_id: int
     name: str
     filters: Optional[str] = None  # JSON
     columns: Optional[str] = None  # JSON

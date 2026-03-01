@@ -172,7 +172,7 @@ export default function MultiMetricChart({
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <Plot data={chartData as any} layout={layout as any} config={config} style={{ width: '100%' }} />
+      <Plot data={chartData as any} layout={layout as any} config={config as any} style={{ width: '100%' }} />
     </div>
   );
 }

@@ -1,13 +1,14 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useNavigate } from 'react-router-dom';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useMemo } from 'react';
 import type { Run } from '../../api/client';
+import { api } from '../../api/client';
 
 interface Column {
   key: string;
   label: string;
   width: string;
-  render: (run: Run) => React.ReactNode;
+  render: (run: Run, metricValues?: Record<number, Record<string, number | null>>) => React.ReactNode;
 }
 
 interface VirtualRunsTableProps {
@@ -22,6 +23,8 @@ interface VirtualRunsTableProps {
   selectable?: boolean;
   selectedRunIds?: number[];
   onSelectionChange?: (selectedIds: number[]) => void;
+  metricColumns?: string[];
+  projectId?: number;
 }
 
 export default function VirtualRunsTable({
@@ -36,9 +39,48 @@ export default function VirtualRunsTable({
   selectable = false,
   selectedRunIds = [],
   onSelectionChange,
+  metricColumns = [],
+  projectId,
 }: VirtualRunsTableProps) {
   const navigate = useNavigate();
   const parentRef = useRef<HTMLDivElement>(null);
+  const [metricValues, setMetricValues] = useState<Record<number, Record<string, number | null>>>({});
+
+  // Fetch metric values when runs or metricColumns change
+  useEffect(() => {
+    if (metricColumns.length === 0 || runs.length === 0) {
+      setMetricValues({});
+      return;
+    }
+
+    const runIds = runs.map(r => r.id);
+    api.getSummaryMetrics(runIds, metricColumns)
+      .then(data => setMetricValues(data))
+      .catch(err => console.error('Failed to fetch metric values:', err));
+  }, [runs, metricColumns]);
+
+  // Sort runs by metric column if needed
+  const sortedRuns = useMemo(() => {
+    // If sorting by a metric column, sort on the client side
+    if (sortBy && sortBy.startsWith('metric:')) {
+      const metricPath = sortBy.replace('metric:', '');
+
+      return [...runs].sort((a, b) => {
+        const aValue = metricValues[a.id]?.[metricPath];
+        const bValue = metricValues[b.id]?.[metricPath];
+
+        // Handle null/undefined values - put them at the end
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
+
+        const comparison = aValue - bValue;
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+    }
+
+    // Otherwise, use the runs as-is (already sorted by backend)
+    return runs;
+  }, [runs, sortBy, sortOrder, metricValues]);
 
   const handleToggleSelection = (runId: number) => {
     if (!onSelectionChange) return;
@@ -53,12 +95,30 @@ export default function VirtualRunsTable({
   const handleToggleAll = () => {
     if (!onSelectionChange) return;
 
-    if (selectedRunIds.length === runs.length) {
+    if (selectedRunIds.length === sortedRuns.length) {
       onSelectionChange([]);
     } else {
-      onSelectionChange(runs.map((r) => r.id));
+      onSelectionChange(sortedRuns.map((r) => r.id));
     }
   };
+
+  // Create dynamic metric columns
+  const metricColumnDefs: Column[] = metricColumns.map(metricPath => ({
+    key: `metric:${metricPath}`,
+    label: metricPath.split('/').pop() || metricPath, // Use last part of path as label
+    width: '120px',
+    render: (run, metricVals) => {
+      const value = metricVals?.[run.id]?.[metricPath];
+      if (value === null || value === undefined) {
+        return <span className="text-sm text-gray-400">-</span>;
+      }
+      return (
+        <span className="text-sm text-gray-900 font-mono">
+          {typeof value === 'number' ? value.toFixed(4) : value}
+        </span>
+      );
+    },
+  }));
 
   const columns: Column[] = selectable
     ? [
@@ -100,15 +160,28 @@ export default function VirtualRunsTable({
       ),
     },
     {
-      key: 'group_name',
-      label: 'Group',
+      key: 'tags',
+      label: 'Tags',
       width: '200px',
       render: (run) => (
-        <span className="text-sm text-gray-600 truncate block" title={run.group_name || '-'}>
-          {run.group_name || '-'}
-        </span>
+        <div className="flex flex-wrap gap-1">
+          {run.tags ? (
+            run.tags.split(',').map((tag, idx) => (
+              <span
+                key={idx}
+                className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-700"
+                title={tag}
+              >
+                {tag}
+              </span>
+            ))
+          ) : (
+            <span className="text-sm text-gray-400">-</span>
+          )}
+        </div>
       ),
     },
+    ...metricColumnDefs,
     {
       key: 'state',
       label: 'State',
@@ -160,15 +233,28 @@ export default function VirtualRunsTable({
           ),
         },
         {
-          key: 'group_name',
-          label: 'Group',
+          key: 'tags',
+          label: 'Tags',
           width: '200px',
           render: (run) => (
-            <span className="text-sm text-gray-600 truncate block" title={run.group_name || '-'}>
-              {run.group_name || '-'}
-            </span>
+            <div className="flex flex-wrap gap-1">
+              {run.tags ? (
+                run.tags.split(',').map((tag, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-700"
+                    title={tag}
+                  >
+                    {tag}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-gray-400">-</span>
+              )}
+            </div>
           ),
         },
+        ...metricColumnDefs,
         {
           key: 'state',
           label: 'State',
@@ -200,7 +286,7 @@ export default function VirtualRunsTable({
       ];
 
   const rowVirtualizer = useVirtualizer({
-    count: hasMore ? runs.length + 1 : runs.length,
+    count: hasMore ? sortedRuns.length + 1 : sortedRuns.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 52, // Height of each row in pixels
     overscan: 5, // Number of rows to render outside viewport
@@ -217,7 +303,7 @@ export default function VirtualRunsTable({
     }
 
     if (
-      lastItem.index >= runs.length - 1 &&
+      lastItem.index >= sortedRuns.length - 1 &&
       hasMore &&
       !isFetchingNextPage
     ) {
@@ -226,7 +312,7 @@ export default function VirtualRunsTable({
   }, [
     hasMore,
     fetchNextPage,
-    runs.length,
+    sortedRuns.length,
     isFetchingNextPage,
     virtualItems,
   ]);
@@ -237,7 +323,7 @@ export default function VirtualRunsTable({
     }
   };
 
-  if (isLoading && runs.length === 0) {
+  if (isLoading && sortedRuns.length === 0) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-8">
         <div className="animate-pulse space-y-3">
@@ -249,7 +335,7 @@ export default function VirtualRunsTable({
     );
   }
 
-  if (runs.length === 0) {
+  if (sortedRuns.length === 0) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
         <p className="text-gray-500 text-lg">No runs found</p>
@@ -276,7 +362,7 @@ export default function VirtualRunsTable({
             {column.key === 'select' ? (
               <input
                 type="checkbox"
-                checked={runs.length > 0 && selectedRunIds.length === runs.length}
+                checked={sortedRuns.length > 0 && selectedRunIds.length === sortedRuns.length}
                 onChange={handleToggleAll}
                 className="w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
               />
@@ -308,8 +394,8 @@ export default function VirtualRunsTable({
           }}
         >
           {virtualItems.map((virtualRow) => {
-            const isLoaderRow = virtualRow.index > runs.length - 1;
-            const run = runs[virtualRow.index];
+            const isLoaderRow = virtualRow.index > sortedRuns.length - 1;
+            const run = sortedRuns[virtualRow.index];
 
             return (
               <div
@@ -337,7 +423,7 @@ export default function VirtualRunsTable({
                         className="px-6 py-3"
                         style={{ width: column.width, minWidth: column.width }}
                       >
-                        {column.render(run)}
+                        {column.render(run, metricValues)}
                       </div>
                     ))}
                   </>
@@ -350,7 +436,7 @@ export default function VirtualRunsTable({
 
       {/* Footer with count */}
       <div className="bg-gray-50 border-t border-gray-200 px-6 py-3 text-sm text-gray-600">
-        Showing {runs.length} {runs.length === 1 ? 'run' : 'runs'}
+        Showing {sortedRuns.length} {sortedRuns.length === 1 ? 'run' : 'runs'}
         {hasMore && ' (scroll for more)'}
       </div>
     </div>

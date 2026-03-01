@@ -57,9 +57,36 @@ def import_parquet_files(
     print(f"Found {len(parquet_files)} parquet files")
 
     run_id_map = {}  # Map (project_id, run_id) -> database run ID
+    run_metadata = {}  # Map run_key -> {name, tags}
+
+    # First pass: extract sys/name and sys/tags for all runs
+    print("\nFirst pass: extracting run metadata (sys/name, sys/tags)...")
+    for i, parquet_file in enumerate(parquet_files, 1):
+        df = pd.read_parquet(parquet_file)
+
+        # Extract sys/name values
+        sys_name_df = df[df['attribute_path'] == 'sys/name']
+        for _, row in sys_name_df.iterrows():
+            run_key = (row["project_id"], row["run_id"])
+            if run_key not in run_metadata:
+                run_metadata[run_key] = {}
+            run_metadata[run_key]['name'] = row['string_value']
+
+        # Extract sys/tags values
+        sys_tags_df = df[df['attribute_path'] == 'sys/tags']
+        for _, row in sys_tags_df.iterrows():
+            run_key = (row["project_id"], row["run_id"])
+            if run_key not in run_metadata:
+                run_metadata[run_key] = {}
+            # Convert array to comma-separated string
+            tags = row['string_set_value']
+            if tags is not None and len(tags) > 0:
+                run_metadata[run_key]['tags'] = ','.join(str(tag) for tag in tags)
+
+    print(f"  Found metadata for {len(run_metadata)} runs")
 
     for i, parquet_file in enumerate(parquet_files, 1):
-        print(f"Processing {i}/{len(parquet_files)}: {parquet_file.name}")
+        print(f"\nProcessing {i}/{len(parquet_files)}: {parquet_file.name}")
 
         # Read parquet file
         df = pd.read_parquet(parquet_file)
@@ -85,11 +112,17 @@ def import_parquet_files(
                     )
 
                     if not db_run:
+                        # Get metadata for this run
+                        metadata = run_metadata.get(run_key, {})
+                        run_name = metadata.get('name', row["run_id"])
+                        run_tags = metadata.get('tags')
+
                         # Create new run
                         db_run = Run(
                             project_id=project.id,
                             run_id=row["run_id"],
-                            name=row["run_id"],  # Use run_id as name by default
+                            name=run_name,
+                            tags=run_tags,
                             state="completed",  # Assume completed for imported data
                         )
                         db_session.add(db_run)

@@ -81,18 +81,12 @@ export default function ProjectsPage() {
                 </div>
               </div>
 
-              <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
-                <button
-                  onClick={() => navigate(`/projects/${project.id}/dashboard`)}
-                  className="flex-1 px-3 py-2 text-sm bg-primary-50 text-primary-700 rounded hover:bg-primary-100 transition-colors"
-                >
-                  Dashboard
-                </button>
+              <div className="mt-4 pt-4 border-t border-gray-200">
                 <button
                   onClick={() => navigate(`/projects/${project.id}/runs`)}
-                  className="flex-1 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                  className="w-full px-3 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
                 >
-                  Runs
+                  View Runs
                 </button>
               </div>
 

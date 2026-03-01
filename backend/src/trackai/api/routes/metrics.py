@@ -7,7 +7,7 @@ from sqlalchemy import distinct
 
 from trackai.db.connection import get_db
 from trackai.db.schema import Metric, Run
-from trackai.api.models import MetricValue, MetricValuesResponse, MetricCompareRequest
+from trackai.api.models import MetricValue, MetricValuesResponse, MetricCompareRequest, MetricSummaryRequest
 
 router = APIRouter()
 
@@ -101,6 +101,10 @@ def get_metric_values(
         elif m.bool_value is not None:
             value = m.bool_value
 
+        # Skip metrics with no value (e.g., artifacts)
+        if value is None:
+            continue
+
         data.append(
             MetricValue(
                 step=m.step,
@@ -161,8 +165,53 @@ def compare_metrics(request: MetricCompareRequest, db: Session = Depends(get_db)
                 elif m.bool_value is not None:
                     value = m.bool_value
 
+                # Skip metrics with no value (e.g., artifacts)
+                if value is None:
+                    continue
+
                 values.append({"step": m.step, "value": value})
 
             result[run_id][metric_path] = values
+
+    return result
+
+
+@router.post("/summary")
+def get_summary_metrics(
+    request: MetricSummaryRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Get summary metric values (single float values with step=None) for multiple runs.
+
+    Args:
+        request: Summary request with run IDs and metric paths
+        db: Database session
+
+    Returns:
+        Dict: {run_id: {metric_path: float_value}}
+    """
+    result = {}
+
+    for run_id in request.run_ids:
+        result[run_id] = {}
+
+        for metric_path in request.metric_paths:
+            # Get single-value metric (step=None)
+            metric = (
+                db.query(Metric)
+                .filter(
+                    Metric.run_id == run_id,
+                    Metric.attribute_path == metric_path,
+                    Metric.step.is_(None),
+                    Metric.float_value.isnot(None),
+                )
+                .first()
+            )
+
+            if metric and metric.float_value is not None:
+                result[run_id][metric_path] = metric.float_value
+            else:
+                result[run_id][metric_path] = None
 
     return result

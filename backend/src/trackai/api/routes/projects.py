@@ -5,20 +5,20 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from trackai.db.connection import get_db
-from trackai.db.schema import Project, Run
+from trackai.db.schema import Project, Run, Metric
 from trackai.api.models import ProjectResponse, ProjectSummary, ProjectCreate
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[ProjectResponse])
+@router.get("/", response_model=list[ProjectSummary])
 def list_projects(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
 ):
     """
-    List all projects with pagination.
+    List all projects with pagination and summary statistics.
 
     Args:
         limit: Maximum number of projects to return
@@ -26,10 +26,31 @@ def list_projects(
         db: Database session
 
     Returns:
-        List of projects
+        List of projects with run statistics
     """
     projects = db.query(Project).order_by(Project.created_at.desc()).limit(limit).offset(offset).all()
-    return projects
+
+    # Add run statistics for each project
+    result = []
+    for project in projects:
+        total_runs = db.query(Run).filter(Run.project_id == project.id).count()
+        running_runs = db.query(Run).filter(Run.project_id == project.id, Run.state == "running").count()
+        completed_runs = db.query(Run).filter(Run.project_id == project.id, Run.state == "completed").count()
+        failed_runs = db.query(Run).filter(Run.project_id == project.id, Run.state == "failed").count()
+
+        result.append(ProjectSummary(
+            id=project.id,
+            name=project.name,
+            project_id=project.project_id,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            total_runs=total_runs,
+            running_runs=running_runs,
+            completed_runs=completed_runs,
+            failed_runs=failed_runs,
+        ))
+
+    return result
 
 
 @router.get("/{project_id}", response_model=ProjectSummary)
@@ -65,6 +86,70 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
         completed_runs=completed_runs,
         failed_runs=failed_runs,
     )
+
+
+@router.get("/{project_id}/tags", response_model=list[str])
+def get_project_tags(project_id: int, db: Session = Depends(get_db)):
+    """
+    Get all unique tags for a project.
+
+    Args:
+        project_id: Project ID
+        db: Database session
+
+    Returns:
+        List of unique tags
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get all runs with tags
+    runs = db.query(Run).filter(Run.project_id == project_id, Run.tags.isnot(None)).all()
+
+    # Collect all unique tags
+    tags_set = set()
+    for run in runs:
+        if run.tags:
+            tags = [tag.strip() for tag in run.tags.split(',')]
+            tags_set.update(tags)
+
+    return sorted(list(tags_set))
+
+
+@router.get("/{project_id}/available-columns", response_model=list[str])
+def get_available_columns(project_id: int, db: Session = Depends(get_db)):
+    """
+    Get available metric columns for the runs table (single-value float metrics).
+
+    Args:
+        project_id: Project ID
+        db: Database session
+
+    Returns:
+        List of metric paths that are single-value floats
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get all distinct metric paths that are single-value (step=None) and float type
+    # Join with runs to filter by project
+    metrics = (
+        db.query(Metric.attribute_path)
+        .join(Run, Metric.run_id == Run.id)
+        .filter(
+            Run.project_id == project_id,
+            Metric.step.is_(None),
+            Metric.float_value.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+
+    # Extract paths and sort
+    paths = sorted([m[0] for m in metrics])
+    return paths
 
 
 @router.post("/", response_model=ProjectResponse)

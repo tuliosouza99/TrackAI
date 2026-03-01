@@ -5,7 +5,6 @@ import ProjectsPage from './pages/ProjectsPage';
 import RunsPage from './pages/RunsPage';
 import RunDetailPage from './pages/RunDetailPage';
 import CompareRunsPage from './pages/CompareRunsPage';
-import DashboardPage from './pages/DashboardPage';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -26,7 +25,6 @@ function App() {
             <Route index element={<Navigate to="/projects" replace />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:projectId/runs" element={<RunsPage />} />
-            <Route path="projects/:projectId/dashboard" element={<DashboardPage />} />
             <Route path="runs/:runId" element={<RunDetailPage />} />
             <Route path="compare" element={<CompareRunsPage />} />
           </Route>

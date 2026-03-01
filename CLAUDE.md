@@ -8,6 +8,35 @@ TrackAI is a lightweight experiment tracker for deep learning, built as an alter
 
 ## Development Commands
 
+### Quick Start (Production Mode)
+
+TrackAI serves both backend and frontend from a single port in production:
+
+```bash
+# Start everything (automatically finds available port starting from 8000)
+./start.sh
+```
+
+This script:
+- Finds the first available port starting from 8000
+- Builds the frontend
+- Serves everything from the backend on the selected port
+
+### Development Mode (with Hot Reload)
+
+For active frontend development with hot reload:
+
+```bash
+# Run backend and frontend separately
+./dev.sh
+```
+
+This script:
+- Finds available ports for both backend (starting from 8000) and frontend (starting from 5173)
+- Starts backend and frontend on the selected ports
+- Frontend automatically proxies `/api` requests to the backend
+- Displays URLs for both servers
+
 ### Backend (Python/FastAPI)
 
 The backend uses **uv** for Python dependency management. Always use uv commands:
@@ -16,17 +45,14 @@ The backend uses **uv** for Python dependency management. Always use uv commands
 # Install dependencies
 cd backend && uv sync
 
-# Run the server (development)
-uv run python src/trackai/api/main.py
-
-# Run with uvicorn directly
-uv run uvicorn trackai.api.main:app --reload
+# Run the server
+cd backend && uv run uvicorn trackai.api.main:app --reload
 
 # Run example scripts
-uv run python examples/simple_experiment.py
+cd backend && uv run python examples/simple_experiment.py
 
 # Import Neptune export data
-uv run python scripts/import_exports.py
+cd backend && uv run python scripts/import_exports.py
 ```
 
 **Important**: Before running custom Python scripts, access the uv skill for better understanding how to run and manage them.
@@ -38,16 +64,16 @@ uv run python scripts/import_exports.py
 cd frontend && npm install
 
 # Run development server (default: http://localhost:5173)
-npm run dev
+cd frontend && npm run dev
 
-# Build for production
-npm run build
+# Build for production (outputs to ../static)
+cd frontend && npm run build
+
+# Build with type checking
+cd frontend && npm run build:check
 
 # Lint code
-npm run lint
-
-# Preview production build
-npm run preview
+cd frontend && npm run lint
 ```
 
 ## Architecture Overview
@@ -156,23 +182,28 @@ rm ~/.trackai/trackai.db
 
 ## Development Workflow
 
-### Running Both Backend and Frontend
+### Production Mode (Single Port)
 
-1. Terminal 1 (Backend):
+Run everything from a single command:
+
 ```bash
-cd backend
-uv run uvicorn trackai.api.main:app --reload
+./start.sh
 ```
 
-2. Terminal 2 (Frontend):
+The backend serves the built frontend from the `/static` directory. The script automatically finds an available port starting from 8000 and displays the URL.
+
+### Development Mode (Hot Reload)
+
+For active development with frontend hot reload:
+
 ```bash
-cd frontend
-npm run dev
+./dev.sh
 ```
 
-3. Access the app at `http://localhost:5173`
-   - Frontend proxies API requests to backend at `http://localhost:8000`
-   - CORS configured for local development
+The script automatically finds available ports for both servers:
+- Backend: starts from port 8000
+- Frontend: starts from port 5173
+- Frontend automatically proxies `/api` requests to the backend's port
 
 ### Adding New Features
 

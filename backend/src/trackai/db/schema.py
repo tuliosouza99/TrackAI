@@ -50,6 +50,7 @@ class Run(Base):
     run_id = Column(String, nullable=False)
     name = Column(String)
     group_name = Column(String, index=True)
+    tags = Column(Text)  # Comma-separated tags
     state = Column(String, default="running", index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

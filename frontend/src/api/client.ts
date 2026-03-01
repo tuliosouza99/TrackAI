@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UseQueryOptions } from '@tanstack/react-query';
 
 // Types
@@ -21,6 +21,7 @@ export interface Run {
   run_id: string;
   name: string;
   group_name: string | null;
+  tags: string | null;  // Comma-separated tags
   state: 'running' | 'completed' | 'failed';
   created_at: string;
   updated_at: string;
@@ -48,8 +49,26 @@ export interface RunFilters {
   group?: string;
   state?: string;
   search?: string;
+  tags?: string;  // Comma-separated tags
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
+}
+
+export interface CustomView {
+  id: number;
+  project_id: number;
+  name: string;
+  filters: string | null;  // JSON string
+  columns: string | null;  // JSON string
+  sort_by: string | null;  // JSON string
+  created_at: string;
+}
+
+export interface CustomViewCreate {
+  name: string;
+  filters?: string | null;
+  columns?: string | null;
+  sort_by?: string | null;
 }
 
 // API Client
@@ -70,6 +89,16 @@ export const api = {
 
   getProject: async (projectId: number): Promise<Project> => {
     const { data } = await apiClient.get(`/projects/${projectId}`);
+    return data;
+  },
+
+  getProjectTags: async (projectId: number): Promise<string[]> => {
+    const { data } = await apiClient.get(`/projects/${projectId}/tags`);
+    return data;
+  },
+
+  getAvailableColumns: async (projectId: number): Promise<string[]> => {
+    const { data } = await apiClient.get(`/projects/${projectId}/available-columns`);
     return data;
   },
 
@@ -108,6 +137,34 @@ export const api = {
     const { data } = await apiClient.post('/metrics/compare', { run_ids: runIds, metric_paths: metricPaths });
     return data;
   },
+
+  getSummaryMetrics: async (runIds: number[], metricPaths: string[]): Promise<Record<number, Record<string, number | null>>> => {
+    const { data } = await apiClient.post('/metrics/summary', {
+      run_ids: runIds,
+      metric_paths: metricPaths
+    });
+    return data;
+  },
+
+  // Custom Views
+  getCustomViews: async (projectId: number): Promise<CustomView[]> => {
+    const { data } = await apiClient.get(`/views/projects/${projectId}/views`);
+    return data;
+  },
+
+  createCustomView: async (projectId: number, view: CustomViewCreate): Promise<CustomView> => {
+    const { data } = await apiClient.post(`/views/projects/${projectId}/views`, view);
+    return data;
+  },
+
+  updateCustomView: async (viewId: number, view: CustomViewCreate): Promise<CustomView> => {
+    const { data } = await apiClient.put(`/views/views/${viewId}`, view);
+    return data;
+  },
+
+  deleteCustomView: async (viewId: number): Promise<void> => {
+    await apiClient.delete(`/views/views/${viewId}`);
+  },
 };
 
 // React Query Hooks
@@ -123,6 +180,24 @@ export function useProject(projectId: number, options?: Omit<UseQueryOptions<Pro
   return useQuery({
     queryKey: ['projects', projectId],
     queryFn: () => api.getProject(projectId),
+    enabled: !!projectId,
+    ...options,
+  });
+}
+
+export function useProjectTags(projectId: number, options?: Omit<UseQueryOptions<string[], Error>, 'queryKey' | 'queryFn'>) {
+  return useQuery({
+    queryKey: ['projects', projectId, 'tags'],
+    queryFn: () => api.getProjectTags(projectId),
+    enabled: !!projectId,
+    ...options,
+  });
+}
+
+export function useAvailableColumns(projectId: number, options?: Omit<UseQueryOptions<string[], Error>, 'queryKey' | 'queryFn'>) {
+  return useQuery({
+    queryKey: ['projects', projectId, 'available-columns'],
+    queryFn: () => api.getAvailableColumns(projectId),
     enabled: !!projectId,
     ...options,
   });
@@ -189,5 +264,45 @@ export function useMetricValues(
     queryFn: () => api.getMetricValues(runId, metricPath),
     enabled: !!runId && !!metricPath,
     ...options,
+  });
+}
+
+export function useCustomViews(projectId: number, options?: Omit<UseQueryOptions<CustomView[], Error>, 'queryKey' | 'queryFn'>) {
+  return useQuery({
+    queryKey: ['custom-views', projectId],
+    queryFn: () => api.getCustomViews(projectId),
+    enabled: !!projectId,
+    ...options,
+  });
+}
+
+export function useCreateCustomView(projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (view: CustomViewCreate) => api.createCustomView(projectId, view),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['custom-views', projectId] });
+    },
+  });
+}
+
+export function useUpdateCustomView(projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ viewId, view }: { viewId: number; view: CustomViewCreate }) =>
+      api.updateCustomView(viewId, view),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['custom-views', projectId] });
+    },
+  });
+}
+
+export function useDeleteCustomView(projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (viewId: number) => api.deleteCustomView(viewId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['custom-views', projectId] });
+    },
   });
 }

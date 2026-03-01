@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useMemo, useRef } from 'react';
-import { Responsive, useContainerWidth } from 'react-grid-layout';
+import { useState, useEffect, useRef } from 'react';
+import { Responsive } from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -26,7 +26,18 @@ export default function DashboardPage() {
   const { data: project, isLoading: projectLoading } = useProject(parseInt(projectId || '0'));
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const { width } = useContainerWidth(containerRef);
+  const [width, setWidth] = useState(1200);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setWidth(containerRef.current.offsetWidth);
+      }
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
 
   // Default dashboard widgets
   const [widgets, setWidgets] = useState<Widget[]>([
@@ -47,7 +58,7 @@ export default function DashboardPage() {
     },
   ]);
 
-  const [layouts, setLayouts] = useState<{ [key: string]: Layout[] }>({
+  const [layouts, setLayouts] = useState<any>({
     lg: [
       { i: 'recent-runs', x: 0, y: 0, w: 4, h: 4 },
       { i: 'metric-1', x: 4, y: 0, w: 2, h: 2 },
@@ -82,7 +93,7 @@ export default function DashboardPage() {
     }
   };
 
-  const handleLayoutChange = (layout: Layout[], allLayouts: { [key: string]: Layout[] }) => {
+  const handleLayoutChange = (_layout: Layout, allLayouts: any) => {
     setLayouts(allLayouts);
   };
 
@@ -96,7 +107,7 @@ export default function DashboardPage() {
     setWidgets([...widgets, newWidget]);
 
     // Add layout for the new widget
-    const newLayout: Layout = {
+    const newLayout = {
       i: newWidget.i,
       x: 0,
       y: Infinity, // Place at the bottom
@@ -114,7 +125,7 @@ export default function DashboardPage() {
     setWidgets(widgets.filter((w) => w.i !== widgetId));
     setLayouts({
       ...layouts,
-      lg: (layouts.lg || []).filter((l) => l.i !== widgetId),
+      lg: (layouts.lg || []).filter((l: any) => l.i !== widgetId),
     });
   };
 
@@ -206,6 +217,7 @@ export default function DashboardPage() {
 
       {/* Grid Layout */}
       <div ref={containerRef}>
+        {/* @ts-ignore */}
         <Responsive
           className="layout"
           layouts={layouts}

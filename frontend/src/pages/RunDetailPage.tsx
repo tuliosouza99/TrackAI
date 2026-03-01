@@ -1,13 +1,14 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useRun, useRunSummary, useRunMetrics } from '../api/client';
-import { MetricChart } from '../components/Charts';
+import MetricBrowser from '../components/Charts/MetricBrowser';
+import MetricViewer from '../components/Charts/MetricViewer';
 
 export default function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState<'overview' | 'metrics' | 'config'>('overview');
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
+  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
 
   const { data: run, isLoading: runLoading } = useRun(parseInt(runId || '0'));
   const { data: summary, isLoading: summaryLoading } = useRunSummary(parseInt(runId || '0'));
@@ -131,20 +132,42 @@ export default function RunDetailPage() {
           </div>
 
           {/* Summary Stats */}
-          {summary && Object.keys(summary).length > 0 && (
+          {summary?.metrics && Object.keys(summary.metrics).length > 0 && (
             <div className="card lg:col-span-2">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Summary Metrics</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {Object.entries(summary).slice(0, 12).map(([key, value]) => (
-                  <div key={key}>
-                    <dt className="text-xs text-gray-500 truncate" title={key}>
-                      {key}
-                    </dt>
-                    <dd className="text-lg font-semibold text-gray-900 mt-1">
-                      {typeof value === 'number' ? value.toFixed(4) : String(value)}
-                    </dd>
-                  </div>
-                ))}
+                {Object.entries(summary.metrics)
+                  .filter(([_, value]) => {
+                    // Only show primitive values (numbers, strings, booleans)
+                    const isPrimitive = typeof value !== 'object' || value === null;
+                    return isPrimitive;
+                  })
+                  .slice(0, 12)
+                  .map(([key, value]) => {
+                    // Format value based on type
+                    let displayValue: string;
+                    if (typeof value === 'number') {
+                      // Check if it's an integer
+                      if (Number.isInteger(value)) {
+                        displayValue = value.toString();
+                      } else {
+                        displayValue = value.toFixed(4);
+                      }
+                    } else {
+                      displayValue = String(value);
+                    }
+
+                    return (
+                      <div key={key}>
+                        <dt className="text-xs text-gray-500 truncate" title={key}>
+                          {key}
+                        </dt>
+                        <dd className="text-lg font-semibold text-gray-900 mt-1">
+                          {displayValue}
+                        </dd>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -152,81 +175,55 @@ export default function RunDetailPage() {
       )}
 
       {selectedTab === 'metrics' && (
-        <div className="space-y-6">
-          {/* Metric Selector */}
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Available Metrics ({metricNames?.length || 0})
-            </h3>
-            {metricNames && metricNames.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                {metricNames.map((metricName) => {
-                  const isSelected = selectedMetrics.includes(metricName);
-                  return (
-                    <button
-                      key={metricName}
-                      onClick={() => {
-                        if (isSelected) {
-                          setSelectedMetrics(selectedMetrics.filter((m) => m !== metricName));
-                        } else {
-                          setSelectedMetrics([...selectedMetrics, metricName]);
-                        }
-                      }}
-                      className={`px-3 py-2 rounded text-sm font-mono text-left transition-colors ${
-                        isSelected
-                          ? 'bg-primary-100 text-primary-800 border-2 border-primary-500'
-                          : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-transparent'
-                      }`}
-                    >
-                      {metricName}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-8">No metrics found for this run</p>
-            )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Metric Browser */}
+          <div className="lg:col-span-1">
+            <MetricBrowser
+              metrics={metricNames || []}
+              onMetricSelect={setSelectedMetric}
+              selectedMetric={selectedMetric}
+            />
+          </div>
 
-            {selectedMetrics.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <button
-                  onClick={() => setSelectedMetrics([])}
-                  className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+          {/* Metric Viewer */}
+          <div className="lg:col-span-1">
+            {selectedMetric ? (
+              <MetricViewer
+                runId={parseInt(runId || '0')}
+                metricPath={selectedMetric}
+                onClose={() => setSelectedMetric(null)}
+              />
+            ) : (
+              <div className="card text-center py-12">
+                <svg
+                  className="w-16 h-16 text-gray-300 mx-auto mb-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  Clear selection ({selectedMetrics.length} selected)
-                </button>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                  />
+                </svg>
+                <p className="text-gray-500 text-lg">Select a metric to visualize</p>
+                <p className="text-gray-400 text-sm mt-2">
+                  Browse the metric tree on the left and click on a metric to view its data
+                </p>
               </div>
             )}
           </div>
-
-          {/* Charts for Selected Metrics */}
-          {selectedMetrics.length > 0 && (
-            <div className="space-y-6">
-              {selectedMetrics.map((metricPath) => (
-                <MetricChart
-                  key={metricPath}
-                  runId={parseInt(runId || '0')}
-                  metricPath={metricPath}
-                  height={400}
-                />
-              ))}
-            </div>
-          )}
-
-          {selectedMetrics.length === 0 && metricNames && metricNames.length > 0 && (
-            <div className="card text-center py-12">
-              <p className="text-gray-500">Click on metrics above to visualize them</p>
-            </div>
-          )}
         </div>
       )}
 
       {selectedTab === 'config' && (
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Configuration</h3>
-          {summary && Object.keys(summary).length > 0 ? (
+          {summary?.config && Object.keys(summary.config).length > 0 ? (
             <div className="bg-gray-50 rounded p-4 font-mono text-sm overflow-x-auto">
-              <pre>{JSON.stringify(summary, null, 2)}</pre>
+              <pre>{JSON.stringify(summary.config, null, 2)}</pre>
             </div>
           ) : (
             <p className="text-gray-500 text-center py-8">No configuration data available</p>

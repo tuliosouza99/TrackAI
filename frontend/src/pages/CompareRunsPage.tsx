@@ -114,7 +114,7 @@ export default function CompareRunsPage() {
       <div className="p-8">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
           <h3 className="font-semibold mb-1">Error loading runs</h3>
-          <p className="text-sm">{error.run?.message || error.summary?.message}</p>
+          <p className="text-sm">{error.run?.error?.message || error.summary?.error?.message}</p>
         </div>
       </div>
     );

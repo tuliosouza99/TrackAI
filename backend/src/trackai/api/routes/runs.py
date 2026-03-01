@@ -24,6 +24,7 @@ def list_runs(
     group: Optional[str] = None,
     state: Optional[str] = None,
     search: Optional[str] = None,
+    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated, AND logic)"),
     limit: int = 100,
     offset: int = 0,
     sort_by: str = "created_at",
@@ -38,6 +39,7 @@ def list_runs(
         group: Filter by group name
         state: Filter by run state (running, completed, failed)
         search: Search in run_id and name
+        tags: Filter by tags (comma-separated, AND logic - all tags must match)
         limit: Maximum number of runs to return
         offset: Number of runs to skip
         sort_by: Column to sort by
@@ -63,6 +65,12 @@ def list_runs(
                 Run.name.ilike(f"%{search}%"),
             )
         )
+    if tags:
+        # Filter by tags (AND logic - run must have all specified tags)
+        tag_list = [tag.strip() for tag in tags.split(',')]
+        for tag in tag_list:
+            # Use LIKE to check if tag exists in comma-separated tags field
+            query = query.filter(Run.tags.ilike(f"%{tag}%"))
 
     # Get total count
     total = query.count()
